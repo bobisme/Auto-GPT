@@ -5,6 +5,7 @@ from typing import List
 
 from autogpt.config.config import Config
 from autogpt.llm import Message, create_chat_completion
+from autogpt.plugins import WrappedPlugin
 from autogpt.singleton import Singleton
 
 
@@ -15,6 +16,7 @@ class AgentManager(metaclass=Singleton):
         self.next_key = 0
         self.agents = {}  # key, (task, full_message_history, model)
         self.cfg = Config()
+        self.plugins = [WrappedPlugin(plugin) for plugin in self.cfg.plugins]
 
     # Create new GPT agent
     # TODO: Centralise use of create_chat_completion() to globally enforce token limit
@@ -33,9 +35,7 @@ class AgentManager(metaclass=Singleton):
         messages: List[Message] = [
             {"role": "user", "content": prompt},
         ]
-        for plugin in self.cfg.plugins:
-            if not plugin.can_handle_pre_instruction():
-                continue
+        for plugin in self.plugins:
             if plugin_messages := plugin.pre_instruction(messages):
                 messages.extend(iter(plugin_messages))
         # Start GPT instance
@@ -47,9 +47,7 @@ class AgentManager(metaclass=Singleton):
         messages.append({"role": "assistant", "content": agent_reply})
 
         plugins_reply = ""
-        for i, plugin in enumerate(self.cfg.plugins):
-            if not plugin.can_handle_on_instruction():
-                continue
+        for i, plugin in enumerate(self.plugins):
             if plugin_result := plugin.on_instruction(messages):
                 sep = "\n" if i else ""
                 plugins_reply = f"{plugins_reply}{sep}{plugin_result}"
@@ -63,9 +61,7 @@ class AgentManager(metaclass=Singleton):
 
         self.agents[key] = (task, messages, model)
 
-        for plugin in self.cfg.plugins:
-            if not plugin.can_handle_post_instruction():
-                continue
+        for plugin in self.plugins:
             agent_reply = plugin.post_instruction(agent_reply)
 
         return key, agent_reply
@@ -85,9 +81,7 @@ class AgentManager(metaclass=Singleton):
         # Add user message to message history before sending to agent
         messages.append({"role": "user", "content": message})
 
-        for plugin in self.cfg.plugins:
-            if not plugin.can_handle_pre_instruction():
-                continue
+        for plugin in self.plugins:
             if plugin_messages := plugin.pre_instruction(messages):
                 for plugin_message in plugin_messages:
                     messages.append(plugin_message)
@@ -101,9 +95,7 @@ class AgentManager(metaclass=Singleton):
         messages.append({"role": "assistant", "content": agent_reply})
 
         plugins_reply = agent_reply
-        for i, plugin in enumerate(self.cfg.plugins):
-            if not plugin.can_handle_on_instruction():
-                continue
+        for i, plugin in enumerate(self.plugins):
             if plugin_result := plugin.on_instruction(messages):
                 sep = "\n" if i else ""
                 plugins_reply = f"{plugins_reply}{sep}{plugin_result}"
@@ -111,9 +103,7 @@ class AgentManager(metaclass=Singleton):
         if plugins_reply and plugins_reply != "":
             messages.append({"role": "assistant", "content": plugins_reply})
 
-        for plugin in self.cfg.plugins:
-            if not plugin.can_handle_post_instruction():
-                continue
+        for plugin in self.plugins:
             agent_reply = plugin.post_instruction(agent_reply)
 
         return agent_reply

@@ -1,5 +1,6 @@
 """Handles loading of plugins."""
 
+from functools import update_wrapper
 import importlib
 import json
 import os
@@ -17,6 +18,49 @@ from openapi_python_client.cli import Config as OpenAPIConfig
 from autogpt.config import Config
 from autogpt.logs import logger
 from autogpt.models.base_open_ai_plugin import BaseOpenAIPlugin
+
+
+def _wrap(obj, plugin: BaseOpenAIPlugin, method_name, noop):
+    method_check = getattr(plugin, f"can_handle_{method_name}")
+    should_replace = method_check is not None and not method_check(plugin)
+    _wrap_or_replace(obj, plugin, should_replace, method_name, noop)
+
+
+def _wrap_or_replace(obj, plugin, should_replace: bool, method_name, noop=None):
+    if noop is None:
+        noop = lambda *a_, **k_: None
+    method = getattr(plugin, method_name)
+    if method is None:
+        return
+    if should_replace:
+        method = update_wrapper(noop, method)
+    else:
+        setattr(obj, method_name, method)
+
+
+class WrappedPlugin:
+    """A wrapper which implements a tell-don't-ask-style API for plugins."""
+
+    def __new__(cls, plugin: BaseOpenAIPlugin):
+        obj = super().__new__(cls)
+        _wrap(obj, plugin, "on_response", lambda _, response: response)
+        _wrap(obj, plugin, "post_prompt", lambda _, prompt: prompt)
+        _wrap(obj, plugin, "on_planning")
+        _wrap(obj, plugin, "post_planning", lambda _, response: response)
+        _wrap(obj, plugin, "pre_instruction", lambda _, messages_: [])
+        _wrap(obj, plugin, "on_instruction")
+        _wrap(obj, plugin, "post_instruction", lambda _, response: response)
+        _wrap(
+            obj,
+            plugin,
+            "pre_command",
+            lambda _, command_name, arguments: (command_name, arguments),
+        )
+        _wrap(obj, plugin, "post_command", lambda _, response: response)
+        # doesn't match the pattern
+        _wrap_or_replace(
+            obj, plugin, plugin.can_handle_chat_completion(), "handle_chat_completion"
+        )
 
 
 def inspect_zip_for_modules(zip_path: str, debug: bool = False) -> list[str]:

@@ -7,6 +7,7 @@ from autogpt.json_utils.utilities import LLM_DEFAULT_RESPONSE_FORMAT, validate_j
 from autogpt.llm import chat_with_ai, create_chat_completion, create_chat_message
 from autogpt.llm.token_counter import count_string_tokens
 from autogpt.logs import logger, print_assistant_thoughts
+from autogpt.plugins import WrappedPlugin
 from autogpt.speech import say_text
 from autogpt.spinner import Spinner
 from autogpt.utils import clean_input
@@ -68,6 +69,7 @@ class Agent:
         self.system_prompt = system_prompt
         self.triggering_prompt = triggering_prompt
         self.workspace = Workspace(workspace_directory, cfg.restrict_to_workspace)
+        self.plugins = [WrappedPlugin(plugin) for plugin in cfg.plugins]
 
     def start_interaction_loop(self):
         # Interaction Loop
@@ -101,9 +103,7 @@ class Agent:
                 )  # TODO: This hardcodes the model to use GPT3.5. Make this an argument
 
             assistant_reply_json = fix_json_using_multiple_techniques(assistant_reply)
-            for plugin in cfg.plugins:
-                if not plugin.can_handle_post_planning():
-                    continue
+            for plugin in self.plugins:
                 assistant_reply_json = plugin.post_planning(self, assistant_reply_json)
 
             # Print Assistant thoughts
@@ -136,16 +136,19 @@ class Agent:
                 )
 
                 logger.info(
-                    "Enter 'y' to authorise command, 'y -N' to run N continuous commands, 's' to run self-feedback commands"
-                    "'n' to exit program, or enter feedback for "
-                    f"{self.ai_name}..."
+                    "\n"
+                    "y      authorize command\n"
+                    "y -N   authorize the next N commands\n"
+                    "s      run self-feedback commands\n"
+                    "n      quit\n"
+                    f"Otherwise, type in your feedback for {self.ai_name}.\n"
                 )
                 while True:
                     if cfg.chat_messages_enabled:
                         console_input = clean_input("Waiting for your response...")
                     else:
                         console_input = clean_input(
-                            Fore.MAGENTA + "Input:" + Style.RESET_ALL
+                            Fore.MAGENTA + "Input: " + Style.RESET_ALL
                         )
                     if console_input.lower().strip() == cfg.authorise_key:
                         user_input = "GENERATE NEXT COMMAND JSON"
@@ -220,9 +223,7 @@ class Agent:
             elif command_name == "human_feedback":
                 result = f"Human feedback: {user_input}"
             else:
-                for plugin in cfg.plugins:
-                    if not plugin.can_handle_pre_command():
-                        continue
+                for plugin in self.plugins:
                     command_name, arguments = plugin.pre_command(
                         command_name, arguments
                     )
@@ -232,7 +233,7 @@ class Agent:
                     arguments,
                     self.config.prompt_generator,
                 )
-                result = f"Command {command_name} returned: " f"{command_result}"
+                result = f"Command {command_name} returned: {command_result}"
 
                 result_tlength = count_string_tokens(
                     str(command_result), cfg.fast_llm_model
