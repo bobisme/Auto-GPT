@@ -19,7 +19,7 @@ from autogpt.workspace import Workspace
 class Command:
     user_input: str = ""
     name: str | None = None
-    args: dict = {}
+    args: dict = None
 
 GENERATE_NEXT_COMMAND_JSON = Command(user_input="GENERATE_NEXT_COMMAND_JSON")
 EXIT = Command(user_input="EXIT")

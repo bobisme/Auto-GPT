@@ -43,5 +43,7 @@ def test_agent_initialization(agent):
     assert agent.triggering_prompt == "Triggering prompt"
 
 
-# More test methods can be added for specific agent interactions
-# For example, mocking chat_with_ai and testing the agent's interaction loop
+def test_prompt_user(agent):
+    agent.config.chat_messages_enabled = False
+    prompt = agent._prompt_user()
+    assert prompt == "dookie"
