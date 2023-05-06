@@ -104,7 +104,7 @@ def test_is_duplicate_operation(config, mocker: MockerFixture):
         "path/to/file1.txt": "checksum1",
         "path/to/file2.txt": "checksum2",
     }
-    mocker.patch.object(file_ops, "file_operations_state", lambda _: state)
+    mocker.patch("autogpt.commands.file_operations.file_operations_state", lambda _: state)
 
     # Test cases with write operations
     assert (
@@ -137,10 +137,11 @@ def test_log_operation(config: Config):
     assert f"log_test: path/to/test\n" in content
 
 
-def test_text_checksum(file_content: str):
-    checksum = file_ops.text_checksum(file_content)
-    different_checksum = file_ops.text_checksum("other content")
+def test_text_checksum():
+    checksum = file_ops.text_checksum("some\nfile\ncontent")
+    assert checksum == "3e69f92156a469daa00d62bdd36f39da"
     assert re.match(r"^[a-fA-F0-9]+$", checksum) is not None
+    different_checksum = file_ops.text_checksum("other content")
     assert checksum != different_checksum
 
 
@@ -164,12 +165,18 @@ def test_read_file(test_file_with_content_path: Path, file_content):
     assert content == file_content
 
 
-def test_write_to_file(test_file_path: Path):
+def test_write_to_file(workspace: Workspace):
     new_content = "This is new content.\n"
-    file_ops.write_to_file(str(test_file_path), new_content)
-    with open(test_file_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    assert content == new_content
+    try:
+        path = workspace.get_path("this-file-does-not-exist.txt")
+        result = file_ops.write_to_file(path, new_content)
+        assert result == "File written to successfully."
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert content == new_content
+    finally:
+        if os.path.isfile(path):
+            os.unlink(path)
 
 
 def test_write_file_logs_checksum(config: Config, test_file_path: Path):
@@ -183,13 +190,10 @@ def test_write_file_logs_checksum(config: Config, test_file_path: Path):
 
 def test_write_file_fails_if_content_exists(test_file_path: Path):
     new_content = "This is new content.\n"
-    file_ops.log_operation(
-        "write",
-        str(test_file_path),
-        checksum=file_ops.text_checksum(new_content),
-    )
-    result = file_ops.write_to_file(str(test_file_path), new_content)
-    assert result == "Error: File has already been updated."
+    result_1 = file_ops.write_to_file(test_file_path, new_content)
+    assert result_1 == "File written to successfully."
+    result_2 = file_ops.write_to_file(test_file_path, new_content)
+    assert result_2 == "Error: File has already been updated."
 
 
 def test_write_file_succeeds_if_content_different(test_file_with_content_path: Path):
@@ -236,16 +240,10 @@ def test_delete_file(test_file_with_content_path: Path):
     assert os.path.exists(test_file_with_content_path) is False
 
 
-def test_delete_missing_file(config):
+def test_delete_missing_file():
     filename = "path/to/file/which/does/not/exist"
-    # confuse the log
-    file_ops.log_operation("write", filename, checksum="fake")
-    try:
-        os.remove(filename)
-    except FileNotFoundError as err:
-        assert str(err) in file_ops.delete_file(filename)
-        return
-    assert False, f"Failed to test delete_file; {filename} not expected to exist"
+    result = file_ops.delete_file(filename)
+    assert result == "Error: File has already been deleted."
 
 
 def test_list_files(workspace: Workspace, test_directory: Path):

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 import os.path
+from pathlib import Path
 from typing import Dict, Generator, Literal, Tuple
 
 import charset_normalizer
@@ -25,7 +26,6 @@ Operation = Literal["write", "append", "delete"]
 def text_checksum(text: str) -> str:
     """Get the hex checksum for the given text."""
     return hashlib.md5(text.encode("utf-8")).hexdigest()
-
 
 def operations_from_log(log_path: str) -> Generator[Tuple[Operation, str, str | None]]:
     """Parse the file operations log and return a tuple containing the log entries"""
@@ -88,11 +88,16 @@ def is_duplicate_operation(
     Returns:
         True if the operation has already been performed on the file
     """
-    state = file_operations_state(CFG.file_logger_path)
-    if operation == "delete" and filename not in state:
-        return True
-    if operation == "write" and state.get(filename) == checksum:
-        return True
+
+    file_exists = os.path.isfile(filename)
+    if operation == "delete":
+        return not file_exists
+    if operation == "write":
+        if not file_exists:
+            return False
+        with open(filename, "r", encoding="utf-8") as f:
+            file_checksum = text_checksum(f.read())
+        return file_checksum == checksum
     return False
 
 
@@ -197,7 +202,7 @@ def ingest_file(
 
 
 @command("write_to_file", "Write to file", '"filename": "<filename>", "text": "<text>"')
-def write_to_file(filename: str, text: str) -> str:
+def write_to_file(filename: Path | str, text: str) -> str:
     """Write text to a file
 
     Args:
